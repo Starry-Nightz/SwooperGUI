@@ -4,6 +4,7 @@
 - Python's Asyncio Module & Threading
 - Textual (CLI -> GUI) and Rich (for debugging)
 - CSV Parsing, to dump Results into a compatible format
+- BeautifulSoup4, fast a reliable HTML Parsing for title grabbing (This is a IOT scanner remember?)
 - Other misc. helper modules for IP conversion (Str->Int and back again) and others
 
 This code was made when I was a beginner...
