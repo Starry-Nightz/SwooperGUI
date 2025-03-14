@@ -25,3 +25,7 @@ The goal of uploading this to github is to:
   
 3. Prevent random crashes from occuring
    - Add logging maybe?
+
+4. [NEW] Seperation of backend and frontend through an webserver
+   - adds diversity to possible interfaces with the same code in the back
+   - more modularity!!!!
