@@ -5,10 +5,11 @@ from textual.widgets import *
 from textual.binding import Binding
 from textual.validation import Validator, ValidationResult
 from textual.box_model import *
-from textual.containers import Horizontal,Vertical
-import os, time, threading, ipaddress, asyncio, socket
-import pyperclip 
+from textual.containers import Horizontal, Vertical
+import os, time, ipaddress, pyperclip
+
 from FileManager import FileManagerNEW
+from CleanRequesterClass import Scanner, SMBScanner
 
 intToIp = lambda x : str(ipaddress.ip_address(x))
 ipToInt = lambda x : int(ipaddress.ip_address(x))
@@ -53,160 +54,7 @@ def floodfill(iprange:range,sections:int) -> list[range]:
     else:
         return [iprange]
 
-class StoppableThread(threading.Thread):
-    """Thread class with a stop() method. The thread itself has to check
-    regularly for the stopped() condition."""
-
-    def __init__(self, group = None, target = None, name = None, args = ..., kwargs = None, *, daemon = None):
-        super().__init__(group, target, name, args, kwargs, daemon=daemon)
-        self._stop_event = threading.Event()
-
-    def stop(self):
-        self._stop_event.set()
-
-    def stopped(self):
-        return self._stop_event.is_set()
-
-class Counter():
-    def __init__(self,KnownTotal:int):
-        self.knownTotal = KnownTotal
-        self.known = 0
-        self.unknown = 0
-        self.none = 0
-    def addKnown(self) -> None:
-        self.known +=1
-    def addUnknown(self) -> None:
-        self.unknown +=1
-    def addNone(self) -> None:
-        self.none +=1
-    def getTotalResolved(self) -> int:
-        return self.known + self.unknown + self.none
-    def getProgressNormalized(self) -> float:
-        return (self.getTotalResolved() / self.knownTotal)
-
-class IpBank():
-    def __init__(self):
-        self.ipDict = dict()
-
-    def append(self,ipRange:range, ipOutList:list[str]) -> None:
-        ipPlusOuts = [(key,value) for key, value in zip(ipRange,ipOutList) if value]
-        self.ipDict.update(ipPlusOuts)
-    def appendDict(self,ipDict:dict[str,str]) -> None:
-        ipPlusOuts = [(key,value) for key, value in ipDict.items() if value]
-        self.ipDict.update(ipPlusOuts)
-
-    def get(self,ipAddress):
-        return self.ipDict.get(ipToInt(ipAddress))
-    def getIPDict(self):
-        return self.ipDict
-    def getIPsStr(self):
-        ipNumtoStr = lambda x: str(ipaddress.ip_address(x))
-        tmp = list(self.ipDict.keys())
-        tmp.sort()
-        return [ipNumtoStr(key) for key in tmp] 
-
-class Scanner():
-    def __init__(self, 
-                startIp:str="127.0.0.1", 
-                endIp:str=  "127.0.0.1", 
-                threads:int=1,
-                timeout:int=3,
-                ipBank = IpBank()):
-        self.ipRange = range(int(ipaddress.ip_address(startIp)),
-                             int(ipaddress.ip_address(endIp)+1))
-        #Inclusive
-        self.threadsAlotted = threads
-        self.timeout = timeout
-        self.ipBank = ipBank
-        self.counter = Counter(len(self.ipRange))
-        self.spawnedThreads = []
-
-    async def waitForCompletion(self):
-        if len(self.spawnedThreads) == 0:
-            return
-        activeCount = 1
-        while activeCount:
-            #print(self.counter.getProgressNormalized()*100,end="\r")
-            activeCount = sum([not thread.stopped() for thread in self.spawnedThreads])
-            await asyncio.sleep(0)
-    def threadsActive(self) -> int:
-            return sum([not thread.stopped() for thread in self.spawnedThreads])
-
-    async def runningOnThread(self,ipRange:range,ipBank:IpBank,counter:Counter,stopEvent:threading.Event = None, args:tuple=None) -> None:
-        pass 
-
-    async def threadHandler(self,stopEvent:threading.Event, runnerTask:asyncio.Task) -> None:
-        while not stopEvent.is_set():
-            await asyncio.sleep(0)
-        runnerTask.cancel()
-
-    def startAll(self):
-        if len(self.spawnedThreads):
-            return
-        splitList =  floodfill(self.ipRange,self.threadsAlotted)
-        for threadNum in range(self.threadsAlotted):
-            _stop_event = threading.Event()
-
-            runnerTask = asyncio.Task(self.runningOnThread(ipRange=splitList[threadNum], stopEvent=_stop_event))
-            stopperTask = asyncio.Task(self.threadHandler(_stop_event,runnerTask))
-
-            args = asyncio.Task(asyncio.wait([runnerTask, stopperTask], return_when=asyncio.FIRST_COMPLETED))
-
-            thread = StoppableThread(group=None,
-                                     target=asyncio.run,
-                                     name=f"ScannerThread - {threadNum}",
-                                     args=args,
-                                     daemon=True
-                                     )
-            thread._stop_event = _stop_event
-            thread.daemon = True
-            self.spawnedThreads.append(thread)
-
-    def stopAll(self):
-        if len(self.spawnedThreads):
-            [thread.stop() for thread in self.spawnedThreads]
-
 ####
-            
-async def scanPortTCP(ipAd:str,port:int,counter:Counter, timeout:float) -> str:
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    s.setblocking(False)
-
-    # 10056, GOOD
-    # 10022, BAD
-
-    s.connect_ex((ipAd,port))
-    await asyncio.sleep(timeout)
-    code = s.connect_ex((ipAd,port))
-    s.close()
-    del s
-    match code:
-        case 10056:
-            counter.addKnown()
-            return f"Port Open : {port}"
-        case 0:
-            counter.addKnown()
-            return f"Port Open : {port}"
-        case _:
-            counter.addNone()
-            return None
-
-async def scanRange(ipRange:range,port:int,counter:Counter,timeout:float) -> list[str]:
-    return await asyncio.gather(*[scanPortTCP(ipAd=intToIp(x), port=port,counter=counter,timeout=timeout) for x in ipRange])
-    
-
-class portScanner(Scanner):
-    def __init__(self, startIp: str = "127.0.0.1", endIp: str = "127.0.0.1", threads: int = 1, timeout: int = 3, ipBank=IpBank(), port = 445):
-        super().__init__(startIp, endIp, threads, timeout, ipBank)
-        self.port = port
-
-    async def runningOnThread(self,ipRange:range,stopEvent:threading.Event = None) -> None:
-        splitList = floodfill(ipRange, len(ipRange)//700)
-        for rang in splitList:
-            out = await scanRange(rang,self.port,counter=self.counter,timeout=self.timeout)
-            self.ipBank.append(rang,out)
-            #await asyncio.sleep(0)
-        stopEvent.set()
 
 class isFloat(Validator):  
     def validate(self, value: str) -> ValidationResult:
@@ -228,7 +76,7 @@ class isFloat(Validator):
 class ControlPanel(Static):
 
     def compose(self) -> ComposeResult:
-        veryifyReg = "^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$"
+        #veryifyReg = "^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$"
         ipReg = "[\d.]{0,15}"
 
         yield Horizontal(
@@ -356,8 +204,7 @@ class ControlPanel(Static):
                                     startIp=self.startRange,
                                     endIp=self.endRange,
                                     threads=threadCount,
-                                    timeout=self.timeOut,
-                                    port=445
+                                    timeout=self.timeOut
                                 )
                 
                 self.consoleLog.write(f"> given threads : [ {self.req.threadsAlotted} ]")
@@ -581,22 +428,22 @@ class SwooperApp(App):
         self.query_one(ContentSwitcher).current = event.tab.id
 
 
-async def deBug():
-    scan = portScanner(   
-                            threads=1,
-                            startIp="10.30.0.0",
-                            endIp="10.30.2.255",
-                            port=80,
-                            timeout=4.5
-                            )
-    scan.startAll()
-    await scan.waitForCompletion()
-    tmp = scan.ipBank.getIPDict()
-    print(f"Found {len(tmp)} items")
+# async def deBug():
+#     scan = SMBScanner(   
+#                             threads=1,
+#                             startIp="10.30.0.0",
+#                             endIp="10.30.2.255",
+#                             timeout=4.5
+#                             )
+#     scan.startAll()
+#     await scan.waitForCompletion()
+#     tmp = scan.ipBank.getIPDict()
+#     print(f"Found {len(tmp)} items")
 
 if __name__ == "__main__":
     theFilemanager = FileManagerNEW()
     app = SwooperApp()
     app.run()
     #asyncio.run(deBug())
+    pass
     

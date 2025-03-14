@@ -75,8 +75,11 @@ class FileManagerNEW():
         return [rows,]
     def getPageCount(self,pageSize:int=9999):
         assert pageSize > 0
-        e, a = divmod(self.lines,pageSize)
-        return e + (a>0)
+        if self.lines > 0:
+            e, a = divmod(self.lines,pageSize)
+            return e + (a>0)
+        else:
+            return 1
 
     def setFilter(self,filterText:str) -> None:
         filterText = filterText.rstrip().lstrip()

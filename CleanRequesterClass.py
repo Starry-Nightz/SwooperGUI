@@ -223,25 +223,43 @@ async def scanPortTCP(ipAd:str,port:int,counter:Counter, timeout:float) -> str:
             counter.addNone()
             return None
 
-async def scanRange(ipRange:range,port:int,counter:Counter,timeout:float) -> list[str]:
+async def scanRangeTCP(ipRange:range,port:int,counter:Counter,timeout:float) -> list[str]:
     ipToStr = lambda x : str(ip(x))
     return await asyncio.gather(*[scanPortTCP(ipAd=ipToStr(x), port=port,counter=counter,timeout=timeout) for x in ipRange])
     
 
-class portScanner(Scanner):
-    def __init__(self, startIp: str = "127.0.0.1", endIp: str = "127.0.0.1", threads: int = 1, timeout: int = 3, ipBank=IpBank(), port = 445):
+class SMBScanner(Scanner):
+    def __init__(self, startIp: str = "127.0.0.1", endIp: str = "127.0.0.1", threads: int = 1, timeout: int = 3, ipBank=IpBank()):
         super().__init__(startIp, endIp, threads, timeout, ipBank)
-        self.port = port
+        self.port = 445
 
     async def runningOnThread(self,ipRange:range,stopEvent:threading.Event = None) -> None:
         splitList = floodfill(ipRange, len(ipRange)//700)
         for rang in splitList:
-            out = await scanRange(rang,self.port,counter=self.counter,timeout=self.timeout)
+            out = await scanRangeTCP(rang,self.port,counter=self.counter,timeout=self.timeout)
             self.ipBank.append(rang,out)
             #await asyncio.sleep(0)
         stopEvent.set()
+        
+#### IOT SCANNER START ####
+        
+async def scanRangeHTTP(ipRange:range,port:int,counter:Counter,timeout:float) -> list[str]:
+    ipToStr = lambda x : str(ip(x))
+    return await asyncio.gather(*[scanPortTCP(ipAd=ipToStr(x), port=port,counter=counter,timeout=timeout) for x in ipRange])
+        
+class SMBScanner(Scanner):
+    def __init__(self, startIp: str = "127.0.0.1", endIp: str = "127.0.0.1", threads: int = 1, timeout: int = 3, ipBank=IpBank()):
+        super().__init__(startIp, endIp, threads, timeout, ipBank)
+        self.port = 445
 
-#### PORT SCANNER END ####
+    async def runningOnThread(self,ipRange:range,stopEvent:threading.Event = None) -> None:
+        splitList = floodfill(ipRange, len(ipRange)//700)
+        for rang in splitList:
+            out = await scanRangeHTTP(rang,self.port,counter=self.counter,timeout=self.timeout)
+            self.ipBank.append(rang,out)
+        stopEvent.set()
+
+####
 
 async def waitWithProgressBar(scanObj:Scanner):
     with Progress(expand=True) as progress:
@@ -257,11 +275,10 @@ async def waitWithProgressBar(scanObj:Scanner):
 ####
 
 async def main():
-    scan = portScanner(   
+    scan = SMBScanner(   
                             threads=12,
                             startIp=str(ip("10.30.0.0")),
                             endIp=str(ip("10.30.255.255")),
-                            port=445,
                             timeout=4.5
                             )
     scan.startAll()
@@ -278,4 +295,5 @@ async def main():
 
     #[print(x) for x in dumpSMBInfo(scan.ipBank.getIPsStr())]
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
